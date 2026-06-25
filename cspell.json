@@ -1,0 +1,32 @@
+{
+    "$schema": "https://raw.githubusercontent.com/streetsidesoftware/cspell/main/cspell.schema.json",
+    "version": "0.2",
+    "dictionaryDefinitions": [
+        {
+            "name": "project-words",
+            "path": "./project-words.txt",
+            "addWords": true
+        }
+    ],
+    "dictionaries": [
+        "project-words"
+    ],
+    "ignorePaths": [
+        "cspell.json",
+        "errors.txt",
+        "/project-words.txt",
+        "type-errors.txt",
+        "spelling-errors.txt",
+        "scripts/ty_benchmark/snapshots/*",
+        "TODO.md",
+    ]
+}
+
+// Listing files
+// cspell "**" --no-issues
+
+// Saving errors
+// cspell "**" > "spelling-errors.txt"
+
+// Ensuring no issues are found
+// cspell --words-only --unique "**" >> all_errors.txt

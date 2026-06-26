@@ -3,7 +3,7 @@ import re
 
 
 def sort_project_valid_words():
-    files = ("all_errors.txt",)
+    files = ("TODO.md",)
     for file in files:
         # Sort valid word list
         with open(file, encoding="utf-8", errors="ignore") as f:
@@ -11,8 +11,16 @@ def sort_project_valid_words():
 
         words.sort(key=lambda x: x.lower())
 
+        with open("spelling-errors.txt", encoding="utf-8", errors="ignore") as f:
+            errors = f.read().splitlines()
+
+        errors = [e for e in errors if any(f"({word})" in e for word in words)]
+        import ipdb; ipdb.set_trace()
+        with open("spelling-errors.txt", "w", encoding="utf-8") as f:
+            f.write("\n".join(errors))
         with open(file, "w", encoding="utf-8") as f:
             f.write("\n".join(words))
+
 
         print("Words sorted!")
 

@@ -1,60 +1,3 @@
-crates/ruff_linter/resources/test/fixtures/pycodestyle/E30.pyi:6:7 - Unknown word (Anoher)
-
-crates/ruff_linter/resources/test/fixtures/pydocstyle/D300.py:23:42 - Unknown word (dobule)
-
-crates/ruff_linter/resources/test/fixtures/pyflakes/F811_36.py:6:7 - Unknown word (shoud)
-
-crates/ruff_linter/resources/test/fixtures/pylint/unexpected_special_method_signature.py:11:43 - Unknown word (caughty)
-
-crates/ruff_linter/resources/test/fixtures/pyupgrade/UP009_code_utf8_utf8.py:1:18 - Unknown word (coments)
-
-crates/ruff_linter/resources/test/fixtures/pyupgrade/UP034.py:5:15 - Unknown word (goodybe)
-
-crates/ruff_linter/resources/test/fixtures/refurb/FURB118.py:10:4 - Unknown word (matmutl)
-
-crates/ruff_linter/resources/test/fixtures/ruff/RUF022.py:49:3 - Unknown word (SCEAMING)
-
-crates/ruff_linter/resources/test/fixtures/ruff/RUF066.py:26:48 - Unknown word (properies)
-
-crates/ruff_linter/resources/test/fixtures/ruff/suppressions.py:45:10 - Unknown word (usued)
-
-crates/ruff_linter/resources/test/fixtures/ruff/suppressions.py:53:14 - Unknown word (unusued)
-
-crates/ruff_linter/src/rules/airflow/helpers.rs:26:60 - Unknown word (maaping)
-
-crates/ruff_linter/src/rules/airflow/rules/removal_in_3.rs:542:22 - Unknown word (datsaet)
-
-crates/ruff_linter/src/rules/flake8_simplify/rules/if_else_block_instead_of_dict_lookup.rs:35:36 - Unknown word (Goodye)
-
-crates/ruff_linter/src/rules/pyflakes/mod.rs:4492:8 - Unknown word (idiomiatic)
-
-crates/ruff_linter/src/rules/pyflakes/snapshots/ruff_linter__rules__pyflakes__tests__preview__F811_F811_36.py.snap:13:11 - Unknown word (shoud)
-crates/ruff_linter/src/rules/pyflakes/snapshots/ruff_linter__rules__pyflakes__tests__preview__F811_F811_36.py.snap:20:11 - Unknown word (shoud)
-crates/ruff_linter/src/rules/pyupgrade/snapshots/ruff_linter__rules__pyupgrade__tests__UP034.py.snap:25:19 - Unknown word (goodybe)
-crates/ruff_linter/src/rules/pyupgrade/snapshots/ruff_linter__rules__pyupgrade__tests__UP034.py.snap:33:19 - Unknown word (goodybe)
-crates/ruff_linter/src/rules/pyupgrade/snapshots/ruff_linter__rules__pyupgrade__tests__UP034.py.snap:34:18 - Unknown word (goodybe)
-crates/ruff_linter/src/rules/refurb/snapshots/ruff_linter__rules__refurb__tests__FURB118_FURB118.py.snap:118:9 - Unknown word (matmutl)
-crates/ruff_linter/src/rules/refurb/snapshots/ruff_linter__rules__refurb__tests__FURB118_FURB118.py.snap:140:9 - Unknown word (matmutl)
-crates/ruff_linter/src/rules/refurb/snapshots/ruff_linter__rules__refurb__tests__FURB118_FURB118.py.snap:152:9 - Unknown word (matmutl)
-crates/ruff_linter/src/rules/refurb/snapshots/ruff_linter__rules__refurb__tests__FURB118_FURB118.py.snap:161:9 - Unknown word (matmutl)
-crates/ruff_linter/src/rules/refurb/snapshots/ruff_linter__rules__refurb__tests__FURB118_FURB118.py.snap:173:9 - Unknown word (matmutl)
-
-crates/ruff_linter/src/rules/ruff/helpers.rs:47:51 - Unknown word (dataclasse)
-crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__invalid_rule_code_external_rules_ruff__RUF102.py.snap:27:36 - Unknown word (Preceeding) fix: (Preceding)
-crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__invalid_rule_code_external_rules_ruff__RUF102.py.snap:29:38 - Unknown word (Preceeding) fix: (Preceding)
-crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__invalid_rule_code_external_rules_ruff__RUF102.py.snap:36:36 - Unknown word (Preceeding) fix: (Preceding)
-crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__invalid_rule_code_external_rules_ruff__RUF102.py.snap:37:36 - Unknown word (Preceeding) fix: (Preceding)
-crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__invalid_rule_code_external_rules_ruff__RUF102.py.snap:38:38 - Unknown word (Preceeding) fix: (Preceding)
-crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__range_suppressions.snap:108:15 - Unknown word (usued)
-crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__range_suppressions.snap:117:15 - Unknown word (usued)
-crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__range_suppressions.snap:127:15 - Unknown word (usued)
-crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__range_suppressions.snap:137:15 - Unknown word (usued)
-crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__range_suppressions.snap:155:19 - Unknown word (unusued)
-crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__RUF102_RUF102.py.snap:46:36 - Unknown word (Preceeding) fix: (Preceding)
-crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__RUF102_RUF102.py.snap:48:38 - Unknown word (Preceeding) fix: (Preceding)
-crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__RUF102_RUF102.py.snap:55:36 - Unknown word (Preceeding) fix: (Preceding)
-crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__RUF102_RUF102.py.snap:56:36 - Unknown word (Preceeding) fix: (Preceding)
-crates/ruff_linter/src/rules/ruff/snapshots/ruff_linter__rules__ruff__tests__RUF102_RUF102.py.snap:57:38 - Unknown word (Preceeding) fix: (Preceding)
 crates/ruff_python_ast/src/find_node.rs:104:54 - Unknown word (predictate)
 crates/ruff_python_ast/src/find_node.rs:125:50 - Unknown word (predictate)
 crates/ruff_python_formatter/resources/test/fixtures/black/cases/docstring_preview.py:11:5 - Unknown word (mulitline)
@@ -89,14 +32,6 @@ crates/ruff_python_formatter/resources/test/fixtures/ruff/statement/top_level.py
 crates/ruff_python_formatter/src/comments/map.rs:14:29 - Unknown word (optimises)
 crates/ruff_python_formatter/src/comments/map.rs:34:147 - Unknown word (optimises)
 crates/ruff_python_formatter/src/statement/stmt_function_def.rs:168:33 - Unknown word (splitable)
-crates/ruff_python_formatter/tests/snapshots/black_compatibility@cases__long_strings_flag_disabled.py.snap:198:13 - Unknown word (reallly)
-crates/ruff_python_formatter/tests/snapshots/black_compatibility@cases__long_strings_flag_disabled.py.snap:204:13 - Unknown word (reallly)
-crates/ruff_python_formatter/tests/snapshots/black_compatibility@cases__long_strings_flag_disabled.py.snap:206:154 - Unknown word (realllllllly)
-crates/ruff_python_formatter/tests/snapshots/black_compatibility@cases__long_strings_flag_disabled.py.snap:552:13 - Unknown word (reallly)
-crates/ruff_python_formatter/tests/snapshots/black_compatibility@cases__long_strings_flag_disabled.py.snap:558:13 - Unknown word (reallly)
-crates/ruff_python_formatter/tests/snapshots/black_compatibility@cases__long_strings_flag_disabled.py.snap:560:154 - Unknown word (realllllllly)
-crates/ruff_python_formatter/tests/snapshots/black_compatibility@cases__long_strings_flag_disabled.py.snap:851:13 - Unknown word (reallly)
-crates/ruff_python_formatter/tests/snapshots/black_compatibility@cases__long_strings_flag_disabled.py.snap:859:154 - Unknown word (realllllllly)
 crates/ruff_python_formatter/tests/snapshots/black_compatibility@cases__pep604_union_types_line_breaks.py.snap:29:34 - Unknown word (parantheses)
 crates/ruff_python_formatter/tests/snapshots/black_compatibility@cases__pep604_union_types_line_breaks.py.snap:168:34 - Unknown word (parantheses)
 crates/ruff_python_formatter/tests/snapshots/black_compatibility@cases__pep604_union_types_line_breaks.py.snap:272:34 - Unknown word (parantheses)

@@ -105,7 +105,7 @@ except* ValueError if True else TypeError:
     pass
 
 # inner except: parenthesis are removed
-# outer except: parenthsis are not removed
+# outer except: parenthesis are not removed
 try:
     try:
         pass

@@ -76,6 +76,14 @@ fn render_with_indentation_mode(
     source: &str,
     leading_indentation: LeadingIndentation,
 ) {
+<<<<<<< Updated upstream
+=======
+    // Here lies a monument to robust parsing and escaping:
+    // a codefence with SO MANY backticks that surely no one will ever accidentally
+    // break out of it, even if they're writing python documentation about markdown
+    // code fences and are showing off how you can use more than 3 backticks.
+    const FENCE: &str = "```````````";
+>>>>>>> Stashed changes
     // TODO: there is a convention that `singletick` is for items that can
     // be looked up in-scope while ``multitick`` is for opaque inline code.
     // While rendering this we should make note of all the `singletick` locations

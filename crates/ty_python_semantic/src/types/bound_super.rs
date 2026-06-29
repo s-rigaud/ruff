@@ -232,7 +232,7 @@ enum DescriptorReceiverKind {
     Instance,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, get_size2::GetSize, salsa::Update)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, get_size2::GetSize, salsa::Update)]
 pub struct ResolvedSuperOwner<'db> {
     /// The resolved second `super()` argument, used when binding descriptors after
     /// attribute lookup. If `receiver` is [`DescriptorReceiverKind::Instance`], this
@@ -286,7 +286,7 @@ impl<'db> ResolvedSuperOwner<'db> {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, get_size2::GetSize, salsa::Update)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, get_size2::GetSize, salsa::Update)]
 pub enum SuperOwnerKind<'db> {
     Dynamic(DynamicType<'db>),
     Divergent(DivergentType),
@@ -304,7 +304,7 @@ impl<'db> SuperOwnerKind<'db> {
             SuperOwnerKind::Dynamic(dynamic) => {
                 Some(SuperOwnerKind::Dynamic(dynamic.recursive_type_normalized()))
             }
-            SuperOwnerKind::Divergent(_) => Some(self.clone()),
+            SuperOwnerKind::Divergent(_) => Some(*self),
             SuperOwnerKind::Resolved(resolved_owner) => Some(SuperOwnerKind::Resolved(
                 resolved_owner.recursive_type_normalized_impl(db, div, nested)?,
             )),
@@ -381,7 +381,7 @@ impl<'db> BoundSuperType<'db> {
                 class.iter_mro(db).any(|superclass| match superclass {
                     ClassBase::Any | ClassBase::Dynamic(_) | ClassBase::Divergent(_) => true,
                     ClassBase::Class(superclass) => superclass.class_literal(db) == pivot_class,
-                    ClassBase::Generic | ClassBase::Protocol | ClassBase::TypedDict => false,
+                    ClassBase::Generic | ClassBase::Protocol | ClassBase::TypedDict(_) => false,
                 })
             }
             special_form @ (ClassBase::Generic | ClassBase::Protocol) => {
@@ -391,7 +391,7 @@ impl<'db> BoundSuperType<'db> {
                 })
             }
             // typing.TypedDict never stays in a runtime class' MRO
-            ClassBase::TypedDict => false,
+            ClassBase::TypedDict(_) => false,
         }
     }
 
@@ -541,7 +541,7 @@ impl<'db> BoundSuperType<'db> {
             },
             Type::SpecialForm(SpecialFormType::Protocol) => ClassBase::Protocol,
             Type::SpecialForm(SpecialFormType::Generic) => ClassBase::Generic,
-            Type::SpecialForm(SpecialFormType::TypedDict) => ClassBase::TypedDict,
+            Type::SpecialForm(SpecialFormType::TypedDict(module)) => ClassBase::TypedDict(module),
             Type::Dynamic(dynamic) => ClassBase::Dynamic(dynamic),
             Type::Divergent(divergent) => ClassBase::Divergent(divergent),
             _ => {
@@ -999,8 +999,10 @@ impl<'c, 'db> EquivalenceChecker<'_, 'c, 'db> {
             (ClassBase::Protocol, ClassBase::Protocol) => self.always(),
             (ClassBase::Protocol, _) => self.never(),
 
-            (ClassBase::TypedDict, ClassBase::TypedDict) => self.always(),
-            (ClassBase::TypedDict, _) => self.never(),
+            (ClassBase::TypedDict(left), ClassBase::TypedDict(right)) => {
+                ConstraintSet::from_bool(self.constraints, left == right)
+            }
+            (ClassBase::TypedDict(_), _) => self.never(),
         };
         if class_equivalence.is_never_satisfied(db) {
             return self.never();

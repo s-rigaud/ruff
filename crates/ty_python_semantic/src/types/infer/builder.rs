@@ -61,12 +61,12 @@ use crate::types::diagnostic::{
     report_invalid_exception_caught, report_invalid_exception_cause,
     report_invalid_exception_raised, report_invalid_exception_tuple_caught,
     report_invalid_generator_yield_type, report_invalid_key_on_typed_dict,
-    report_invalid_type_checking_constant,
+    report_invalid_match_args_type, report_invalid_type_checking_constant,
     report_match_pattern_against_non_runtime_checkable_protocol,
     report_match_pattern_against_typed_dict, report_mismatched_type_name,
     report_possibly_missing_attribute, report_possibly_unresolved_reference,
-    report_too_many_positional_patterns_for_callable_class_pattern,
-    report_unsupported_augmented_assignment, report_unsupported_comparison,
+    report_too_many_positional_patterns_for_class_pattern, report_unsupported_augmented_assignment,
+    report_unsupported_comparison,
 };
 use crate::types::enums::{enum_ignored_names, is_enum_class_by_inheritance};
 use crate::types::function::{
@@ -85,6 +85,7 @@ use crate::types::infer::{
     TypeExpressionFlags, infer_statement_types, nearest_enclosing_class,
     nearest_enclosing_function, original_class_type,
 };
+use crate::types::match_pattern::{ClassPatternPositionalResult, class_pattern_positional_result};
 use crate::types::narrow::NarrowingEvaluatorExtension;
 use crate::types::narrow::pattern_success_types;
 use crate::types::newtype::NewType;
@@ -104,8 +105,8 @@ use crate::types::{
     IntersectionType, KnownClass, KnownInstanceType, KnownUnion, LiteralValueTypeKind,
     MemberLookupPolicy, ParamSpecAttrKind, Parameter, Parameters, SentinelInstance, Signature,
     SpecialFormType, SubclassOfType, Type, TypeAliasType, TypeAndQualifiers, TypeContext,
-    TypeQualifiers, TypeVarBoundOrConstraints, TypeVarKind, TypeVarVariance, TypedDictType,
-    UnionAccumulator, UnionBuilder, UnionType, any_over_type, binding_type,
+    TypeQualifiers, TypeVarBoundOrConstraints, TypeVarKind, TypeVarVariance, TypedDictModule,
+    TypedDictType, UnionAccumulator, UnionBuilder, UnionType, any_over_type, binding_type,
     extract_fixed_length_iterable_element_types, infer_complete_scope_types, infer_scope_types,
     is_discarded_dict_key_assignment, todo_type,
 };
@@ -261,12 +262,12 @@ pub(super) struct TypeInferenceBuilder<'db, 'ast> {
     /// Only populated for expressions that have non-empty flags.
     type_expression_flags: FxHashMap<ExpressionNodeKey, TypeExpressionFlags>,
 
-    /// The constraints on any collection literals that are accessed in this region.
+    /// The constraints on any collection initializers that are accessed in this region.
     //
     // TODO: Store projected constraint sets directly here instead of specialized receiver types.
-    // Bound-method calls on unconstrained collection literals can introduce method-local typevars
+    // Bound-method calls on unconstrained collection initializers can introduce method-local typevars
     // (for example, `list.sort` constrains `T@list` using `SupportsRichComparisonT@sort`). A
-    // principled representation would store an owned constraint set over the collection literal's
+    // principled representation would store an owned constraint set over the collection initializer's
     // generic context and existentially quantify away the method-local typevars, so combining
     // `xs.append("x")` with `xs.sort()` yields `str ≤ T ≤ SupportsRichComparison` instead of
     // leaking `SupportsRichComparisonT@sort` into the inferred list element type.
@@ -2444,10 +2445,12 @@ impl<'db, 'ast> TypeInferenceBuilder<'db, 'ast> {
     fn validate_class_pattern(&mut self, pattern: &ast::PatternMatchClass, cls_ty: Type<'db>) {
         if let Type::SpecialForm(SpecialFormType::CollectionsAbcCallable) = cls_ty {
             if let Some(first_excess_pattern) = pattern.arguments.patterns.first() {
-                report_too_many_positional_patterns_for_callable_class_pattern(
+                report_too_many_positional_patterns_for_class_pattern(
                     &self.context,
                     first_excess_pattern,
+                    0,
                     pattern.arguments.patterns.len(),
+                    "collections.abc.Callable",
                 );
             }
             return;
@@ -2456,7 +2459,9 @@ impl<'db, 'ast> TypeInferenceBuilder<'db, 'ast> {
         if let Type::ClassLiteral(class) = cls_ty {
             if class.is_typed_dict(self.db()) {
                 report_match_pattern_against_typed_dict(&self.context, &*pattern.cls, class);
-            } else if let Some(protocol_class) = class.into_protocol_class(self.db())
+                return;
+            }
+            if let Some(protocol_class) = class.into_protocol_class(self.db())
                 && !protocol_class.is_runtime_checkable(self.db())
             {
                 report_match_pattern_against_non_runtime_checkable_protocol(
@@ -2464,6 +2469,34 @@ impl<'db, 'ast> TypeInferenceBuilder<'db, 'ast> {
                     &*pattern.cls,
                     protocol_class,
                 );
+                return;
+            }
+
+            let positional_patterns = &pattern.arguments.patterns;
+            if let [first_positional_pattern, ..] = positional_patterns.as_slice()
+                && let Some(result) = class_pattern_positional_result(self.db(), class)
+            {
+                match result {
+                    ClassPatternPositionalResult::Limit(limit) => {
+                        if let Some(first_excess_pattern) = positional_patterns.get(limit) {
+                            report_too_many_positional_patterns_for_class_pattern(
+                                &self.context,
+                                first_excess_pattern,
+                                limit,
+                                positional_patterns.len(),
+                                cls_ty.display(self.db()),
+                            );
+                        }
+                    }
+                    ClassPatternPositionalResult::InvalidType(match_args_ty) => {
+                        report_invalid_match_args_type(
+                            &self.context,
+                            first_positional_pattern,
+                            match_args_ty,
+                            cls_ty,
+                        );
+                    }
+                }
             }
         } else if !cls_ty.is_assignable_to(self.db(), KnownClass::Type.to_instance(self.db())) {
             report_invalid_class_match_pattern(&self.context, &*pattern.cls, cls_ty);
@@ -2538,7 +2571,7 @@ impl<'db, 'ast> TypeInferenceBuilder<'db, 'ast> {
                     rest,
                 } = match_mapping;
                 for key in keys {
-                    self.infer_expression(key, TypeContext::default());
+                    self.infer_maybe_standalone_expression(key, TypeContext::default());
                 }
                 for pattern in patterns {
                     self.infer_nested_match_pattern(pattern);
@@ -3865,8 +3898,14 @@ impl<'db, 'ast> TypeInferenceBuilder<'db, 'ast> {
                             Some(definition),
                             namedtuple_kind,
                         )
-                    } else if callable_type == Type::SpecialForm(SpecialFormType::TypedDict) {
-                        self.infer_typeddict_call_expression(call_expr, Some(definition))
+                    } else if let Some(typed_dict_module) =
+                        TypedDictModule::from_type(self.db(), callable_type)
+                    {
+                        self.infer_typeddict_call_expression(
+                            call_expr,
+                            Some(definition),
+                            typed_dict_module,
+                        )
                     } else if let Some(function) = callable_type.as_function_literal()
                         && function.is_known(self.db(), KnownFunction::NewClass)
                     {
@@ -4172,7 +4211,7 @@ impl<'db, 'ast> TypeInferenceBuilder<'db, 'ast> {
             }
             _ => {}
         }
-        if func_ty == Type::SpecialForm(SpecialFormType::TypedDict) {
+        if TypedDictModule::from_type(self.db(), func_ty).is_some() {
             self.infer_functional_typeddict_deferred(arguments);
             return;
         }
@@ -6297,7 +6336,7 @@ impl<'db, 'ast> TypeInferenceBuilder<'db, 'ast> {
         }
 
         if let Some(tcx) = tcx.annotation
-            && let Some(collection_def) = self.index.unannotated_collection_literal(expression)
+            && let Some(collection_def) = self.index.unannotated_collection_initializer(expression)
         {
             self.collection_use_constraints
                 .entry(collection_def)
@@ -7169,13 +7208,13 @@ impl<'db, 'ast> TypeInferenceBuilder<'db, 'ast> {
 
                 let path_bounds =
                     identity_instance.assignable_solutions_with_inferable(db, tcx, inferable);
-                let solutions = path_bounds.solve_with(|typevar, variance, bounds| {
-                    let identity = typevar.identity(db);
+                let solutions = path_bounds.solve_with(|variance, path_bound| {
+                    let identity = path_bound.bound_typevar.identity(db);
                     elt_tcx_variance
                         .entry(identity)
                         .and_modify(|current| *current = current.join(variance))
                         .or_insert(variance);
-                    PathBounds::default_solve(db, &constraints, typevar, bounds)
+                    PathBounds::default_solve(db, &constraints, path_bound)
                 });
 
                 match solutions {
@@ -8450,6 +8489,83 @@ impl<'db, 'ast> TypeInferenceBuilder<'db, 'ast> {
         self.infer_call_expression_impl(call_expression, callable_type, tcx)
     }
 
+    fn infer_empty_list_or_set_constructor(
+        &mut self,
+        collection_class: KnownClass,
+        call_expression: &ast::ExprCall,
+        tcx: TypeContext<'db>,
+    ) -> Option<Type<'db>> {
+        let elements: [[Option<&ast::Expr>; 1]; 0] = [];
+        let mut infer_element_ty = |_: &mut Self, _| Type::unknown();
+
+        self.infer_collection_literal(
+            collection_class,
+            Some(call_expression.into()),
+            &elements,
+            &mut infer_element_ty,
+            tcx,
+        )
+    }
+
+    /// Infers a truthiness-refined `range` instance for literal built-in `range(...)` calls.
+    ///
+    /// The refinement only records whether the constructed range is statically non-empty. Dynamic
+    /// arguments, keyword arguments, starred arguments, shadowed `range` callables, and invalid
+    /// literal forms fall back to the ordinary `range` instance.
+    ///
+    /// This uses the argument types inferred by normal call binding; it does not re-infer
+    /// arguments just to compute the refinement.
+    ///
+    /// ```python
+    /// range(3)        # known non-empty
+    /// range(3, 0, -1) # known non-empty
+    /// range(n)        # ordinary range
+    /// ```
+    fn infer_builtin_range_instance_type(
+        &self,
+        callable_type: Type<'db>,
+        arguments: &ast::Arguments,
+        call_arguments: &CallArguments<'_, 'db>,
+    ) -> Option<Type<'db>> {
+        let Type::ClassLiteral(class) = callable_type else {
+            return None;
+        };
+        if !class.is_known(self.db(), KnownClass::Range)
+            || !arguments.keywords.is_empty()
+            || arguments.args.iter().any(ast::Expr::is_starred_expr)
+        {
+            return None;
+        }
+
+        let int_literal = |argument_index: usize| {
+            call_arguments
+                .argument_types(argument_index)?
+                .get_default()?
+                .as_int_literal()
+        };
+
+        let is_non_empty = match arguments.args.len() {
+            1 => int_literal(0)? > 0,
+            2 => int_literal(0)? < int_literal(1)?,
+            3 => {
+                let start = int_literal(0)?;
+                let stop = int_literal(1)?;
+                let step = int_literal(2)?;
+
+                match step.cmp(&0) {
+                    std::cmp::Ordering::Greater => start < stop,
+                    std::cmp::Ordering::Less => start > stop,
+                    std::cmp::Ordering::Equal => return None,
+                }
+            }
+            _ => return None,
+        };
+
+        Some(Type::KnownInstance(KnownInstanceType::Range {
+            is_non_empty,
+        }))
+    }
+
     fn infer_call_expression_impl(
         &mut self,
         call_expression: &ast::ExprCall,
@@ -8493,11 +8609,37 @@ impl<'db, 'ast> TypeInferenceBuilder<'db, 'ast> {
             arguments,
         } = call_expression;
 
+        // Semantic indexing recognizes only bare empty constructor calls. Confirm that the name
+        // still resolves to the corresponding builtin before using later collection constraints.
+        let collection_initializer_class = if arguments.is_empty()
+            && self
+                .index
+                .try_expression(call_expression)
+                .and_then(|expression| expression.assigned_to(self.db()))
+                .is_some()
+            && let Some(name) = func.as_name_expr()
+            && let Some(known_class) = callable_type
+                .as_class_literal()
+                .and_then(|class| class.known(self.db()))
+            && matches!(
+                (name.id.as_str(), known_class),
+                ("list", KnownClass::List) | ("set", KnownClass::Set) | ("dict", KnownClass::Dict)
+            ) {
+            Some(known_class)
+        } else {
+            None
+        };
+
         if callable_type
             .as_class_literal()
             .is_some_and(|class_literal| class_literal.is_known(self.db(), KnownClass::Dict))
-            && let Some(ty) =
-                self.infer_keyword_only_dict_call(func, arguments, call_expression_tcx)
+            && let Some(ty) = self.infer_keyword_only_dict_call(
+                func,
+                arguments,
+                (collection_initializer_class == Some(KnownClass::Dict))
+                    .then_some(call_expression.into()),
+                call_expression_tcx,
+            )
         {
             return ty;
         }
@@ -8528,8 +8670,8 @@ impl<'db, 'ast> TypeInferenceBuilder<'db, 'ast> {
             return ty;
         }
 
-        if callable_type == Type::SpecialForm(SpecialFormType::TypedDict) {
-            return self.infer_typeddict_call_expression(call_expression, None);
+        if let Some(typed_dict_module) = TypedDictModule::from_type(self.db(), callable_type) {
+            return self.infer_typeddict_call_expression(call_expression, None, typed_dict_module);
         }
 
         if callable_type == Type::SpecialForm(SpecialFormType::TypeForm) {
@@ -8947,11 +9089,11 @@ impl<'db, 'ast> TypeInferenceBuilder<'db, 'ast> {
         }
 
         // Record the constraints for the receiver of a bound method call, if the receiver is an
-        // unannotated collection literal.
+        // unannotated collection initializer.
         if let ast::Expr::Attribute(attribute @ ast::ExprAttribute { value, .. }) = func.as_ref() {
             let value_type = self.expression_type(value);
 
-            if let Some(collection_def) = self.index.unannotated_collection_literal(value)
+            if let Some(collection_def) = self.index.unannotated_collection_initializer(value)
                 && let Some((collection_literal, _)) = value_type.class_specialization(self.db())
             {
                 let identity_instance = Type::instance(
@@ -9008,9 +9150,32 @@ impl<'db, 'ast> TypeInferenceBuilder<'db, 'ast> {
             }
         }
 
+        // `range(...)` always constructs a `range`, but with literal arguments we can preserve
+        // whether that range is statically non-empty on the constructed instance itself.
+        if let Some(instance_ty) =
+            self.infer_builtin_range_instance_type(callable_type, arguments, &call_arguments)
+        {
+            bindings = bindings.with_constructed_instance_type(self.db(), instance_ty);
+        }
+
         let db = self.db();
         let scope = self.scope();
         let return_ty = bindings.return_type(db);
+        let return_ty = match collection_initializer_class {
+            Some(collection_class @ (KnownClass::List | KnownClass::Set))
+                if return_ty
+                    .class_specialization(db)
+                    .is_some_and(|(class, _)| class.is_known(db, collection_class)) =>
+            {
+                self.infer_empty_list_or_set_constructor(
+                    collection_class,
+                    call_expression,
+                    call_expression_tcx,
+                )
+                .unwrap_or(return_ty)
+            }
+            _ => return_ty,
+        };
 
         let find_narrowed_place = |argument_index: usize| match arguments.args.get(argument_index) {
             None => {

@@ -35,9 +35,11 @@ pub(crate) use self::infer::{
 pub(crate) use self::iteration::extract_fixed_length_iterable_element_types;
 pub use self::known_instance::KnownInstanceType;
 pub(crate) use self::match_pattern::{
-    callable_pattern_type, definite_match_pattern_type, exact_sequence_pattern_type,
-    mapping_pattern_type, pattern_binding_fallthrough_type, pattern_fallthrough_type,
+    ClassPatternPositionalSource, callable_pattern_type, class_pattern_positional_sources,
+    definite_match_pattern_type, definite_match_pattern_type_for_subject,
+    exact_sequence_pattern_type, mapping_pattern_type, pattern_binding_fallthrough_type,
     sequence_pattern_type_builder, singleton_pattern_type, starred_sequence_pattern_type,
+    typed_dict_matches_class_pattern,
 };
 pub(crate) use self::relation_error::{ErrorContext, ErrorContextTree, ParameterDescription};
 use self::set_theoretic::KnownUnion;
@@ -108,6 +110,7 @@ pub(crate) use literal::{
     BytesLiteralType, EnumLiteralType, LiteralValueType, LiteralValueTypeKind, StringLiteralType,
 };
 pub use special_form::SpecialFormType;
+pub(crate) use special_form::TypedDictModule;
 use ty_python_core::definition::Definition;
 use ty_python_core::place::ScopedPlaceId;
 use ty_python_core::scope::ScopeId;
@@ -1688,33 +1691,6 @@ impl<'db> Type<'db> {
         }
     }
 
-    /// Returns the number of union clauses in this type. If the type is not a union, returns 1.
-    pub(crate) fn union_size(self, db: &'db dyn Db) -> usize {
-        match self {
-            Type::Union(union_type) => union_type.elements(db).len(),
-            Type::Never => 0,
-            _ => 1,
-        }
-    }
-
-    /// Returns the number of intersection clauses in this type. If the type is a union, this is
-    /// the maximum of the `intersection_size` of each union element. If the type is not a union
-    /// nor an intersection, returns 1.
-    pub(crate) fn intersection_size(self, db: &'db dyn Db) -> usize {
-        match self {
-            Type::Intersection(intersection) => {
-                intersection.positive(db).len() + intersection.negative(db).len()
-            }
-            Type::Union(union_type) => union_type
-                .elements(db)
-                .iter()
-                .map(|element| element.intersection_size(db))
-                .max()
-                .unwrap_or(1),
-            _ => 1,
-        }
-    }
-
     pub const fn as_function_literal(self) -> Option<FunctionType<'db>> {
         match self {
             Type::FunctionLiteral(function_type) => Some(function_type),
@@ -2088,6 +2064,19 @@ impl<'db> Type<'db> {
         self.promote_singletons_impl(db)
     }
 
+    /// Promote class literals to the class objects represented by `type[...]`.
+    ///
+    /// This is intentionally separate from regular promotion. Applying it during collection
+    /// inference would lose useful precision for local and module-level collections of class
+    /// objects.
+    pub(crate) fn promote_class_literals(self, db: &'db dyn Db) -> Type<'db> {
+        self.apply_type_mapping(
+            db,
+            &TypeMapping::Promote(PromotionMode::On, PromotionKind::ClassLiteralsOnly),
+            TypeContext::default(),
+        )
+    }
+
     /// Recursively promote singleton types (like `None`, `EllipsisType`) to
     /// `T | Unknown` within nominal type parameters, without recursing into unions.
     /// Used for collection literal inference so that `[None]` is inferred as
@@ -2449,6 +2438,9 @@ impl<'db> Type<'db> {
     /// Return true if this type is non-empty and all inhabitants of this type compare equal.
     pub(crate) fn is_single_valued(self, db: &'db dyn Db) -> bool {
         match self {
+            // All empty ranges compare equal, but non-empty ranges can contain different values.
+            Type::KnownInstance(KnownInstanceType::Range { is_non_empty }) => !is_non_empty,
+
             // Each `partial()` call creates a distinct object at runtime.
             Type::KnownInstance(KnownInstanceType::FunctoolsPartial(_)) => false,
 
@@ -3534,6 +3526,25 @@ impl<'db> Type<'db> {
             policy: MemberLookupPolicy,
             receiver: Option<Type<'db>>,
         ) -> PlaceAndQualifiers<'db> {
+            fn promote_inferred_attribute_class_literals<'db>(
+                db: &'db dyn Db,
+                result: PlaceAndQualifiers<'db>,
+            ) -> PlaceAndQualifiers<'db> {
+                let should_promote = matches!(
+                    result.place,
+                    Place::Defined(DefinedPlace {
+                        origin: TypeOrigin::Inferred,
+                        ..
+                    })
+                ) && !result.qualifiers.contains(TypeQualifiers::FINAL);
+
+                if should_promote {
+                    result.map_type(|ty| ty.promote_class_literals(db))
+                } else {
+                    result
+                }
+            }
+
             fn instance_like_member_lookup<'db>(
                 db: &'db dyn Db,
                 this: Type<'db>,
@@ -3581,8 +3592,10 @@ impl<'db> Type<'db> {
                 }
 
                 let result = this.fallback_to_getattr(db, name, result, policy);
-
-                result.map_type(|ty| ty.bind_self_typevars(db, receiver))
+                // An inferred attribute accessed through an instance can resolve to an override
+                // on a subclass, so an exact class object is not a safe public type here.
+                let result = result.map_type(|ty| ty.bind_self_typevars(db, receiver));
+                promote_inferred_attribute_class_literals(db, result)
             }
 
             tracing::trace!("member_lookup_with_policy: {}.{}", this.display(db), name);
@@ -4067,6 +4080,15 @@ impl<'db> Type<'db> {
                     // class. `try_call_dunder` adds `NO_INSTANCE_FALLBACK`, which causes the
                     // lookup to hit the catch-all that only checks the meta-type (the metaclass).
                     let result = this.fallback_to_getattr(db, &name, result, policy);
+                    // Unlike a specific class literal, `type[C]` can represent any subclass of
+                    // `C`, unless a `TypeVar` upper bound normalizes to a final class.
+                    let result = if let Type::SubclassOf(subclass_of) = this
+                        && subclass_of.exact_typevar_upper_bound(db).is_none()
+                    {
+                        promote_inferred_attribute_class_literals(db, result)
+                    } else {
+                        result
+                    };
 
                     // `type[Any]`/`type[Unknown]` are gradual forms with an unknown metaclass
                     // (which is at least `type`). Attributes resolved via `type`'s descriptors
@@ -5838,12 +5860,14 @@ impl<'db> Type<'db> {
                 KnownInstanceType::Sentinel(sentinel) => {
                     Ok(Type::KnownInstance(KnownInstanceType::Sentinel(*sentinel)))
                 }
-                KnownInstanceType::FunctoolsPartial(_) => Err(InvalidTypeExpressionError {
-                    invalid_expressions: smallvec_inline![InvalidTypeExpression::InvalidType(
-                        *self, scope_id
-                    )],
-                    fallback_type: Type::unknown(),
-                }),
+                KnownInstanceType::FunctoolsPartial(_) | KnownInstanceType::Range { .. } => {
+                    Err(InvalidTypeExpressionError {
+                        invalid_expressions: smallvec_inline![InvalidTypeExpression::InvalidType(
+                            *self, scope_id
+                        )],
+                        fallback_type: Type::unknown(),
+                    })
+                }
             },
 
             Type::SpecialForm(special_form) => special_form
@@ -6158,6 +6182,15 @@ impl<'db> Type<'db> {
             return self;
         }
 
+        if let Type::ClassLiteral(class) = self
+            && matches!(
+                type_mapping,
+                TypeMapping::Promote(PromotionMode::On, PromotionKind::ClassLiteralsOnly)
+            )
+        {
+            return SubclassOfType::from(db, class.default_specialization(db));
+        }
+
         match self {
             Type::TypeVar(bound_typevar) => bound_typevar.apply_type_mapping_impl(db, type_mapping, visitor),
             Type::KnownInstance(known_instance) => known_instance.apply_type_mapping_impl(db, type_mapping, tcx, visitor),
@@ -6166,7 +6199,7 @@ impl<'db> Type<'db> {
                 match type_mapping {
                     // Promote the types within the signature before promoting the signature to its
                     // callable form.
-                    TypeMapping::Promote(PromotionMode::On, _) => {
+                    TypeMapping::Promote(PromotionMode::On, PromotionKind::Regular) => {
                         Type::FunctionLiteral(function.apply_type_mapping_impl(
                             db,
                             type_mapping,
@@ -6283,9 +6316,12 @@ impl<'db> Type<'db> {
                     builder =
                         builder.add_positive(positive.apply_type_mapping_impl(db, type_mapping, tcx, visitor));
                 }
-                // Promotion should remove negative contributions from intersections,
-                // so we don't preserve them here when promotion is enabled.
-                if !matches!(type_mapping, TypeMapping::Promote(PromotionMode::On, _)) {
+                // Regular promotion should remove negative contributions from intersections,
+                // so we don't preserve them here when regular promotion is enabled.
+                if !matches!(
+                    type_mapping,
+                    TypeMapping::Promote(PromotionMode::On, PromotionKind::Regular)
+                ) {
                     for negative in intersection.negative(db) {
                         builder = builder.add_negative(
                             negative.apply_type_mapping_impl(db, &type_mapping.flip(), tcx, visitor),
@@ -6400,7 +6436,10 @@ impl<'db> Type<'db> {
                 TypeMapping::EagerExpansion |
                 TypeMapping::RescopeReturnCallables(_) |
                 TypeMapping::Promote(PromotionMode::Off, _) |
-                TypeMapping::Promote(PromotionMode::On, PromotionKind::SingletonsOnly) => self,
+                TypeMapping::Promote(
+                    PromotionMode::On,
+                    PromotionKind::ClassLiteralsOnly | PromotionKind::SingletonsOnly,
+                ) => self,
                 TypeMapping::Promote(PromotionMode::On, PromotionKind::Regular) => self.promote_impl(db),
             }
 
@@ -6671,6 +6710,7 @@ impl<'db> Type<'db> {
                 | KnownInstanceType::NamedTupleSpec(_)
                 | KnownInstanceType::NewType(_)
                 | KnownInstanceType::Sentinel(_)
+                | KnownInstanceType::Range { .. }
                 | KnownInstanceType::FunctoolsPartial(_) => {
                     // TODO: For some of these, we may need to try to find legacy typevars in inner types.
                 }
@@ -7337,6 +7377,8 @@ impl PromotionMode {
 pub enum PromotionKind {
     /// Default promotion behaviour: recurse into nested types
     Regular,
+    /// Promote class literals recursively without promoting other literal types.
+    ClassLiteralsOnly,
     /// Singleton-only promotion recursively descends through nominal instances
     /// without recursing into unions or non-nominal types.
     SingletonsOnly,
@@ -7571,7 +7613,7 @@ impl<'db> TypeMapping<'_, 'db> {
 
 /// A type that is determined to be divergent during recursive type inference.
 /// This type must never be eliminated by dynamic type reduction
-/// (e.g. `Divergent` is assignable to `@Todo`, but `@Todo | Divergent` must not be reducted to `@Todo`).
+/// (e.g. `Divergent` is assignable to `@Todo`, but `@Todo | Divergent` must not be reduced to `@Todo`).
 /// Otherwise, type inference cannot converge properly.
 /// For detailed properties of this type, see the unit test at the end of the file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, salsa::Update)]

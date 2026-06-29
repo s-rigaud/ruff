@@ -6,7 +6,7 @@ def sort_project_valid_words():
     files = ("TODO.md",)
     for file in files:
         # Sort valid word list
-        with open(file, encoding="utf-8", errors="ignore") as f:
+        with open(file, errors="ignore") as f:
             words = f.read().splitlines()
 
         words.sort(key=lambda x: x.lower())
@@ -15,10 +15,10 @@ def sort_project_valid_words():
             errors = f.read().splitlines()
 
         errors = [e for e in errors if any(f"({word})" in e for word in words)]
-        import ipdb; ipdb.set_trace()
+
         with open("spelling-errors.txt", "w", encoding="utf-8") as f:
             f.write("\n".join(errors))
-        with open(file, "w", encoding="utf-8") as f:
+        with open(file, "w") as f:
             f.write("\n".join(words))
 
 
